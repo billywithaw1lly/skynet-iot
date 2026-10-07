@@ -1,4 +1,4 @@
-import { Reading } from "../models/reading.models.js";
+import  Reading  from "../models/reading.models.js";
 
 const postTelemetry = async (req, res) => {
   try {
