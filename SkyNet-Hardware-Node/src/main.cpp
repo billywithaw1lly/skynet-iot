@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <WiFiS3.h>
+#include <WebServer.h>
+#include <EEPROM.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -11,11 +13,24 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // NETWORK CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
-#include "secrets.h"
-const char *ssid = WIFI_SSID;
-const char *password = WIFI_PASSWORD;
-const char *serverAddress = "MacBook-Air-2.local";
-const int serverPort = 8000;
+const char *serverAddress = "your-backend.example.com";
+const int serverPort = 443;
+const char *stationId = "STN-INDORE-04";
+const char *telemetryPath = "/api/telemetry";
+const char *setupSsid = "SkyNet_Setup";
+
+constexpr int EEPROM_ADDRESS = 0;
+constexpr uint32_t EEPROM_MAGIC = 0x534B594E;
+constexpr size_t MAX_WIFI_CREDENTIAL_LENGTH = 64;
+
+struct WifiCredentials
+{
+  uint32_t magic;
+  uint8_t ssidLength;
+  uint8_t passwordLength;
+  char ssid[MAX_WIFI_CREDENTIAL_LENGTH + 1];
+  char password[MAX_WIFI_CREDENTIAL_LENGTH + 1];
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PIN DEFINITIONS
@@ -32,12 +47,132 @@ const int serverPort = 8000;
 DHT dht(DHT_PIN, DHT_TYPE);
 Adafruit_BMP085 bmp;
 RTC_DS3231 rtc;
-WiFiClient client;
+WiFiSSLClient client;
+WebServer setupServer(80);
+WifiCredentials wifiCredentials;
 File file;
 bool sdAvailable = false;
 bool headerWritten = false;
 bool bmpAvailable = false;
 bool rtcAvailable = false;
+
+bool loadWifiCredentials()
+{
+  EEPROM.get(EEPROM_ADDRESS, wifiCredentials);
+
+  if (wifiCredentials.magic != EEPROM_MAGIC ||
+      wifiCredentials.ssidLength == 0 ||
+      wifiCredentials.ssidLength > MAX_WIFI_CREDENTIAL_LENGTH ||
+      wifiCredentials.passwordLength > MAX_WIFI_CREDENTIAL_LENGTH)
+  {
+    return false;
+  }
+
+  wifiCredentials.ssid[wifiCredentials.ssidLength] = '\0';
+  wifiCredentials.password[wifiCredentials.passwordLength] = '\0';
+  return true;
+}
+
+void saveWifiCredentials(const String &ssid, const String &password)
+{
+  wifiCredentials.magic = EEPROM_MAGIC;
+  wifiCredentials.ssidLength = ssid.length();
+  wifiCredentials.passwordLength = password.length();
+  ssid.toCharArray(wifiCredentials.ssid, sizeof(wifiCredentials.ssid));
+  password.toCharArray(wifiCredentials.password, sizeof(wifiCredentials.password));
+  EEPROM.put(EEPROM_ADDRESS, wifiCredentials);
+}
+
+void handleSetupPage()
+{
+  const char *page = R"HTML(
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SkyNet Wi-Fi Setup</title></head>
+<body><h1>SkyNet Wi-Fi Setup</h1>
+<form method="post" action="/save">
+<label>SSID<br><input name="ssid" maxlength="64" required></label><br><br>
+<label>Password<br><input name="password" type="password" maxlength="64"></label><br><br>
+<button type="submit">Save and reboot</button>
+</form></body></html>
+)HTML";
+  setupServer.send(200, "text/html", page);
+}
+
+void handleSaveCredentials()
+{
+  String ssid = setupServer.arg("ssid");
+  String password = setupServer.arg("password");
+
+  if (ssid.length() == 0 || ssid.length() > MAX_WIFI_CREDENTIAL_LENGTH ||
+      password.length() > MAX_WIFI_CREDENTIAL_LENGTH)
+  {
+    setupServer.send(400, "text/plain", "SSID and password are too long or empty.");
+    return;
+  }
+
+  saveWifiCredentials(ssid, password);
+  setupServer.send(200, "text/html", "<h1>Saved</h1><p>Rebooting...</p>");
+  delay(1000);
+  NVIC_SystemReset();
+}
+
+void startSetupPortal()
+{
+  WiFi.disconnect();
+  if (WiFi.beginAP(setupSsid) != WL_AP_LISTENING)
+  {
+    Serial.println("[!!] Failed to start Wi-Fi setup AP");
+    while (true)
+      delay(1000);
+  }
+
+  setupServer.on("/", HTTP_GET, handleSetupPage);
+  setupServer.on("/save", HTTP_POST, handleSaveCredentials);
+  setupServer.begin();
+
+  Serial.println("[!!] Wi-Fi credentials unavailable");
+  Serial.print("[OK] Setup AP: ");
+  Serial.println(setupSsid);
+  Serial.print("     Open http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/ to configure Wi-Fi");
+
+  while (true)
+  {
+    setupServer.handleClient();
+    delay(2);
+  }
+}
+
+void connectToWifi()
+{
+  if (!loadWifiCredentials())
+  {
+    startSetupPortal();
+  }
+
+  Serial.print("\nConnecting to WiFi: ");
+  Serial.println(wifiCredentials.ssid);
+  WiFi.begin(wifiCredentials.ssid, wifiCredentials.password);
+
+  unsigned long connectionStarted = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - connectionStarted < 15000)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.println("\nWiFi timed out - starting setup AP");
+    startSetupPortal();
+  }
+
+  Serial.println("\n[OK] WiFi connected!");
+  Serial.print("Board IP: ");
+  Serial.println(WiFi.localIP());
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -195,25 +330,7 @@ void setup()
 
   initializeSD();
 
-  Serial.print("\nConnecting to WiFi: ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-    if (++attempts > 40)
-    {
-      Serial.println("\nWiFi timed out - restarting");
-      NVIC_SystemReset();
-    }
-  }
-
-  Serial.println("\n[OK] WiFi connected!");
-  Serial.print("Board IP: ");
-  Serial.println(WiFi.localIP());
+  connectToWifi();
   Serial.println("===================================\n");
 }
 
@@ -277,7 +394,7 @@ void loop()
   writeEntryToSD(now, temp, humidity, pressure, altitude, airQuality, isRaining ? 1 : 0);
 
   StaticJsonDocument<256> doc;
-  doc["stationId"] = "STN-INDORE-04";
+  doc["stationId"] = stationId;
   JsonObject payload = doc.createNestedObject("payload");
   payload["temp"] = round(temp * 10.0) / 10.0;
   payload["humidity"] = round(humidity);
@@ -294,7 +411,9 @@ void loop()
   Serial.println("Sending to backend...");
   if (client.connect(serverAddress, serverPort))
   {
-    client.println("POST /api/telemetry HTTP/1.1");
+    client.print("POST ");
+    client.print(telemetryPath);
+    client.println(" HTTP/1.1");
     client.print("Host: ");
     client.println(serverAddress);
     client.println("Content-Type: application/json");
@@ -334,7 +453,7 @@ void loop()
   }
   else
   {
-    Serial.print("[!!] Could not connect to ");
+    Serial.print("[!!] Could not establish HTTPS connection to ");
     Serial.print(serverAddress);
     Serial.print(":");
     Serial.println(serverPort);

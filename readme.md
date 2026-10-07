@@ -316,23 +316,24 @@ Frontend runs on `http://localhost:5173` by default.
 All dependencies are defined in `platformio.ini` and installed automatically:
 ```
 bblanchon/ArduinoJson
+cotestatnt/HTTPWebServer
 Adafruit BMP085
 Adafruit DHT sensor library
 RTClib
 SD (arduino-libraries)
 ```
 
-### 2. Configure WiFi & server
-Edit the top of `main.cpp`:
+### 2. Configure the cloud endpoint
+Set the deployed backend hostname at the top of `SkyNet-Hardware-Node/src/main.cpp`:
 ```cpp
-const char *ssid          = "YourWiFiName";
-const char *password      = "YourWiFiPassword";
-const char *serverAddress = "MacBook-Air-2.local"; // your Mac's mDNS hostname
-const int   serverPort    = 8000;
+const char *serverAddress = "your-backend.example.com";
+const int serverPort = 443;
 ```
 
-> 💡 To find your Mac's mDNS hostname: `scutil --get LocalHostName` → append `.local`
-> This is better than using an IP address since it never changes.
+Wi-Fi credentials are no longer stored in the source code. On first boot, or after
+15 seconds without a connection, join the `SkyNet_Setup` access point and open the
+IP address printed in the serial monitor. Submit the form to save credentials in
+EEPROM; the board will reboot and connect automatically.
 
 ### 3. Flash to board
 ```bash
@@ -429,4 +430,23 @@ You should see sensor readings printed every second and `[OK] Transmitted.` afte
 ## 👤 Author
 
 **billywithaw1lly** — SkyNet IoT Weather Station, Indore 🇮🇳
->>>>>>> d2920d7 (not gonna lie the code is pretty bad)
+=======
+
+---
+
+## ☁️ Cloud Deployment Environment Variables
+
+### Vercel frontend
+
+```env
+VITE_BACKEND_URL=https://your-backend.onrender.com
+```
+
+### Render backend
+
+```env
+FRONTEND_URL=https://your-frontend.vercel.app
+```
+
+Replace the example hostnames with your deployed Vercel and Render URLs.
+

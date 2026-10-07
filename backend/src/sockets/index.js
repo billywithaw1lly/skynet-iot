@@ -2,9 +2,12 @@ import { Server } from "socket.io";
 import Reading from "../models/reading.models.js";
 
 export const initializeSockets = (server) => {
+  const frontendUrl =
+    process.env.FRONTEND_URL || process.env.CORS_ORIGIN || "http://localhost:5173";
+
   const io = new Server(server, {
     cors: {
-      origin: process.env.CORS_ORIGIN || "*",
+      origin: frontendUrl,
       methods: ["GET", "POST"],
     },
   });

@@ -8,8 +8,10 @@ import AtmosphericDynamics from "./components/AtmosphericDynamics";
 import ThermalComfort from "./components/ThermalComfort";
 import EnvironmentalQuality from "./components/EnvironmentalQuality";
 
+const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
 // Create the socket connection once, outside the component
-const socket = io("http://localhost:8000");
+const socket = io(backendUrl);
 
 const ACTIVE_STATION = "STN-INDORE-04";
 
@@ -27,7 +29,7 @@ function App() {
 
             try {
                 const response = await fetch(
-                    `http://localhost:8000/api/history?stationId=${ACTIVE_STATION}&hours=${hours}`,
+                    `${backendUrl}/api/history?stationId=${ACTIVE_STATION}&hours=${hours}`,
                 );
 
                 if (!response.ok) {
