@@ -1,29 +1,28 @@
-import  Reading  from "../models/reading.models.js";
+import Reading from "../models/reading.models.js";
 
-const postTelemetry = async (req, res) => {
+export const postTelemetry = async (req, res) => {
   try {
     const { stationId, payload } = req.body;
-    
+
     if (!stationId || !payload) {
-      return res.status(400).json({ error: "Invalid payload format" });
+      return res.status(400).json({ success: false, message: "stationId and payload are required" });
     }
 
-    // Save reading to MongoDB
     const newReading = await Reading.create({
       stationId,
-      temp: payload.temp,
-      humidity: payload.humidity,
-      pressure: payload.pressure,
-      altitude: payload.altitude,
-      airQuality: payload.airQuality,
-      rain: payload.rain,
+      payload: {
+        temp: payload.temp,
+        humidity: payload.humidity,
+        pressure: payload.pressure,
+        altitude: payload.altitude,
+        airQuality: payload.airQuality,
+        rain: payload.rain,
+      },
     });
 
     return res.status(201).json({ success: true, data: newReading });
   } catch (error) {
     console.error("Error saving telemetry:", error);
-    return res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
-
-export { postTelemetry };
