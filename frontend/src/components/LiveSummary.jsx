@@ -8,7 +8,7 @@ import {
     CloudRain,
     Activity,
 } from "lucide-react";
-import WeatherSticker from "./WeatherSticker";
+import WeatherSticker from "./Weathersticker";
 
 // ── Circular gauge — pure SVG, no needle ─────────────────────────────────────
 const CircularGauge = ({ value, min, max, unit, color, size = 180 }) => {

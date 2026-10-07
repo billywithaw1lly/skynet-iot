@@ -18,7 +18,7 @@ import {
     Minus,
     Leaf,
 } from "lucide-react";
-import WeatherSticker from "./WeatherSticker";
+import WeatherSticker from "./Weathersticker";
 
 const ChartTooltip = ({ active: isActive, payload, label, unit }) => {
     if (isActive && payload?.length) {
