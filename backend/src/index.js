@@ -63,6 +63,7 @@ app.get("/api/history", async (req, res) => {
       airQuality: doc.payload.airQuality,
       rain: doc.payload.rain,
       timestamp: new Date(doc.timestamp).toLocaleTimeString("en-GB", {
+        timeZone: "Asia/Kolkata",
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,

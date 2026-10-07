@@ -20,6 +20,7 @@ export const getHistoricalReadings = asyncHandler(async (req, res) => {
   const formatted = history.map((doc) => ({
     stationId: doc.stationId,
     timestamp: new Date(doc.timestamp).toLocaleTimeString("en-GB", {
+      timeZone: "Asia/Kolkata",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
