@@ -3,31 +3,42 @@ import { ApiResponse } from "../utils/api-response.js";
 import { asyncHandler } from "../utils/async-handler.js";
 
 export const getHistoricalReadings = asyncHandler(async (req, res) => {
-  // 1. Get the stationId from the query URL (e.g., ?stationId=STN-MOCK-01)
   const { stationId } = req.query;
-
-  // Default to a limit of 50 data points if the frontend doesn't specify one
-  const limit = parseInt(req.query.limit) || 50;
+  const limit = parseInt(req.query.limit) || 100;
 
   if (!stationId) {
     return res
       .status(400)
-      .json({ success: false, message: "stationId is required" });
+      .json({ success: false, message: "stationId query param is required" });
   }
 
-  // 2. Query MongoDB
-  const history = await Reading.find({ stationId: stationId })
-    .sort({ timestamp: -1 }) // -1 means descending (newest first)
-    .limit(limit);
+  const history = await Reading.find({ stationId })
+    .sort({ timestamp: 1 }) // ascending = chronological
+    .limit(limit)
+    .lean();
 
-  // 3. Return the data to the frontend using our standard format
+  const formatted = history.map((doc) => ({
+    stationId: doc.stationId,
+    timestamp: new Date(doc.timestamp).toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }),
+    temp: doc.payload.temp,
+    humidity: doc.payload.humidity,
+    pressure: doc.payload.pressure,
+    altitude: doc.payload.altitude,
+    airQuality: doc.payload.airQuality,
+    rain: doc.payload.rain,
+  }));
+
   return res
     .status(200)
     .json(
       new ApiResponse(
         200,
-        history,
-        `Fetched last ${history.length} readings for ${stationId}`,
+        formatted,
+        `Fetched ${formatted.length} readings for ${stationId}`,
       ),
     );
 });

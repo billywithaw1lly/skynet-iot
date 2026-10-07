@@ -1,104 +1,138 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { io } from "socket.io-client";
 import Topbar from "./components/Topbar";
 import LiveSummary from "./components/LiveSummary";
 import History24h from "./components/History24h";
+import AtmosphericDynamics from "./components/AtmosphericDynamics";
+import ThermalComfort from "./components/ThermalComfort";
+import EnvironmentalQuality from "./components/EnvironmentalQuality";
 
+// Create the socket connection once, outside the component
 const socket = io("http://localhost:8000");
+
+const ACTIVE_STATION = "STN-INDORE-04";
 
 function App() {
     const [dataHistory, setDataHistory] = useState([]);
     const [currentReading, setCurrentReading] = useState(null);
     const [isConnected, setIsConnected] = useState(false);
     const [isDark, setIsDark] = useState(true);
-    const [availableStations, setAvailableStations] = useState([]);
-    const [activeStation, setActiveStation] = useState("STN-MOCK-01");
 
-    const messageCounter = useRef(0);
-
-    // 1. Fetch the list of available stations ONLY ONCE on load
+    // ─── Fetch historical data on mount ─────────────────────────────────────
     useEffect(() => {
-        const fetchStations = async () => {
-            try {
-                const res = await fetch("http://localhost:8000/api/stations");
-                const data = await res.json();
-                if (data.length > 0) {
-                    setAvailableStations(data);
-                    // Optionally auto-select the first station in the DB
-                    // setActiveStation(data[0]);
-                }
-            } catch (error) {
-                console.error("Could not fetch stations list", error);
-            }
-        };
-        fetchStations();
-    }, []);
-
-    // 2. Fetch the HISTORICAL DATA every time the activeStation changes
-    useEffect(() => {
-        const fetchInitialData = async () => {
-            // Immediate reset to trigger loading/offline state visually
+        const fetchHistory = async (hours = 24) => {
             setCurrentReading(null);
             setDataHistory([]);
 
             try {
                 const response = await fetch(
-                    `http://localhost:8000/api/history?stationId=${activeStation}`,
+                    `http://localhost:8000/api/history?stationId=${ACTIVE_STATION}&hours=${hours}`,
                 );
-                if (!response.ok) throw new Error("Server Error");
-                const history = await response.json();
 
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}`);
+                }
+
+                const json = await response.json();
+
+                // BUG FIX: /api/history returns a plain array directly.
+                // If it ever gets wrapped in ApiResponse ({ data: [...] }), unwrap it.
+                const history = Array.isArray(json) ? json : (json.data ?? []);
+
+                if (!Array.isArray(history)) {
+                    throw new Error("Expected an array from /api/history");
+                }
+
+                console.log(
+                    `📊 Loaded ${history.length} history points for ${ACTIVE_STATION}`,
+                );
                 setDataHistory(history);
+
+                // Show the most recent reading immediately on load
                 if (history.length > 0) {
                     setCurrentReading(history[history.length - 1]);
+                } else if (hours === 24) {
+                    await fetchHistory(0);
                 }
             } catch (error) {
-                console.error("Failed to fetch history:", error);
+                console.error("❌ Failed to fetch history:", error.message);
             }
         };
 
-        fetchInitialData();
-    }, [activeStation]); // Re-runs when you change stations
+        fetchHistory();
+    }, []); // runs once on mount
 
-    // 3. Socket Logic
+    // ─── Socket.io live updates ──────────────────────────────────────────────
     useEffect(() => {
-        socket.on("connect", () => setIsConnected(true));
-        socket.on("disconnect", () => setIsConnected(false));
+        const handleConnect = () => {
+            console.log("🟢 Socket connected");
+            setIsConnected(true);
+        };
 
-        socket.on("updateDashboard", (data) => {
-            const newReading = data.payload || data;
-            const incomingStation = newReading.stationId || "STN-MOCK-01";
+        const handleDisconnect = (reason) => {
+            console.log("🔴 Socket disconnected");
+            setIsConnected(false);
+            console.warn(`Socket disconnect reason: ${reason}`);
+        };
 
-            // If the socket data isn't for the station we are looking at, ignore it
-            if (incomingStation !== activeStation) return;
+        const handleConnectError = (error) => {
+            console.error("❌ Socket connection failed:", error.message);
+            setIsConnected(false);
+        };
 
-            const timeOptions = {
+        const handleUpdateDashboard = (data) => {
+            if (!data || !data.payload) {
+                console.warn("⚠️  Received malformed updateDashboard event");
+                return;
+            }
+
+            const { stationId, payload } = data;
+
+            // Ignore updates for other stations
+            if (stationId !== ACTIVE_STATION) return;
+
+            const timestamp = new Date().toLocaleTimeString("en-GB", {
                 hour: "2-digit",
                 minute: "2-digit",
                 hour12: false,
+            });
+
+            const flatReading = {
+                stationId,
+                timestamp,
+                temp: payload.temp,
+                humidity: payload.humidity,
+                pressure: payload.pressure,
+                altitude: payload.altitude,
+                airQuality: payload.airQuality,
+                rain: payload.rain,
             };
-            const timestamp = new Date().toLocaleTimeString(
-                "en-GB",
-                timeOptions,
-            );
 
-            setCurrentReading({ ...newReading, timestamp });
+            setCurrentReading(flatReading);
 
-            messageCounter.current++;
-            if (messageCounter.current % 29 === 0) {
-                setDataHistory((prev) =>
-                    [...prev, { ...newReading, timestamp }].slice(-100),
-                );
-            }
-        });
+            setDataHistory((prev) => {
+                const updated = [...prev, flatReading];
+                return updated.slice(-200);
+            });
+        };
+
+        socket.on("connect", handleConnect);
+        socket.on("disconnect", handleDisconnect);
+        socket.on("connect_error", handleConnectError);
+        socket.on("updateDashboard", handleUpdateDashboard);
+
+        if (socket.connected) {
+            handleConnect();
+        }
 
         return () => {
-            socket.off("connect");
-            socket.off("disconnect");
-            socket.off("updateDashboard");
+            socket.off("connect", handleConnect);
+            socket.off("disconnect", handleDisconnect);
+            socket.off("connect_error", handleConnectError);
+            socket.off("updateDashboard", handleUpdateDashboard);
         };
-    }, [activeStation]);
+    }, []);
 
     return (
         <Router>
@@ -106,11 +140,8 @@ function App() {
                 <div className="min-h-screen bg-white dark:bg-slate-950 transition-colors duration-300">
                     <Topbar
                         isConnected={isConnected}
-                        activeStation={activeStation}
-                        setActiveStation={setActiveStation}
                         isDark={isDark}
                         setIsDark={setIsDark}
-                        availableStations={availableStations} // Pass this so Topbar can render them
                     />
                     <main className="pt-6">
                         <Routes>
@@ -119,8 +150,8 @@ function App() {
                                 element={
                                     <LiveSummary
                                         currentReading={currentReading}
-                                        activeStation={activeStation}
-                                        dataHistory={dataHistory} // Added this prop for max/min calculations
+                                        activeStation={ACTIVE_STATION}
+                                        dataHistory={dataHistory}
                                     />
                                 }
                             />
@@ -129,7 +160,37 @@ function App() {
                                 element={
                                     <History24h
                                         dataHistory={dataHistory}
-                                        activeStation={activeStation}
+                                        activeStation={ACTIVE_STATION}
+                                        isDark={isDark}
+                                    />
+                                }
+                            />
+                            <Route
+                                path="/analytics/atmospheric"
+                                element={
+                                    <AtmosphericDynamics
+                                        dataHistory={dataHistory}
+                                        currentReading={currentReading}
+                                        isDark={isDark}
+                                    />
+                                }
+                            />
+                            <Route
+                                path="/analytics/thermal"
+                                element={
+                                    <ThermalComfort
+                                        dataHistory={dataHistory}
+                                        currentReading={currentReading}
+                                        isDark={isDark}
+                                    />
+                                }
+                            />
+                            <Route
+                                path="/analytics/environmental"
+                                element={
+                                    <EnvironmentalQuality
+                                        dataHistory={dataHistory}
+                                        currentReading={currentReading}
                                         isDark={isDark}
                                     />
                                 }

@@ -4,43 +4,64 @@ import { app } from "./app.js";
 import http from "http";
 import { initializeSockets } from "./sockets/index.js";
 import Reading from "./models/reading.models.js";
+import express from "express";
 
 dotenv.config({ path: "./.env" });
 
 const server = http.createServer(app);
 
-// app.use(express.json());
+app.use(express.json());
 
-// Get list of unique stations in the database
 app.get("/api/stations", async (req, res) => {
   try {
     const stations = await Reading.distinct("stationId");
     res.json(stations);
   } catch (error) {
-    console.error("API Error:", error);
+    console.error("Stations API Error:", error);
     res.status(500).json([]);
   }
 });
 
-// Get historical data strictly filtered by stationId
 app.get("/api/history", async (req, res) => {
   const { stationId } = req.query;
-  if (!stationId) return res.status(400).json({ error: "Station ID required" });
+
+  if (!stationId) {
+    return res.status(400).json({ error: "stationId query param is required" });
+  }
 
   try {
-    const history = await Reading.find({ stationId })
+    const requestedHours = Number(req.query.hours ?? 24);
+    const hours = Number.isFinite(requestedHours) && requestedHours >= 0
+      ? requestedHours
+      : 24;
+    const query = { stationId };
+    if (hours > 0) {
+      query.timestamp = { $gte: new Date(Date.now() - hours * 60 * 60 * 1000) };
+    }
+
+    const history = await Reading.find(query)
       .sort({ timestamp: -1 })
-      .limit(2900)
+      .limit(10000)
       .lean();
 
-    const chronological = history.reverse();
-    // Sample every 29th reading to keep charts fast
-    const sampledHistory = chronological.filter((_, index) => index % 29 === 0);
+    history.reverse();
 
-    //const formattedHistory = chronological.map((doc) => ({
-    const formattedHistory = sampledHistory.map((doc) => ({
-      ...doc,
-      ...doc.payload,
+    let sampled;
+    if (history.length > 200) {
+      const step = 15;
+      sampled = history.filter((_, i) => i % step === 0);
+    } else {
+      sampled = history;
+    }
+
+    const formatted = sampled.map((doc) => ({
+      stationId: doc.stationId,
+      temp: doc.payload.temp,
+      humidity: doc.payload.humidity,
+      pressure: doc.payload.pressure,
+      altitude: doc.payload.altitude,
+      airQuality: doc.payload.airQuality,
+      rain: doc.payload.rain,
       timestamp: new Date(doc.timestamp).toLocaleTimeString("en-GB", {
         hour: "2-digit",
         minute: "2-digit",
@@ -48,48 +69,65 @@ app.get("/api/history", async (req, res) => {
       }),
     }));
 
-    res.json(formattedHistory);
+    res.json(formatted);
   } catch (error) {
-    console.error("API Error:", error);
+    console.error("History API Error:", error);
     res.status(500).json([]);
   }
 });
 
-// NEW: Endpoint for the physical Arduino to send data to
-// app.post("/api/telemetry", async (req, res) => {
-//   try {
-//     const { stationId, payload } = req.body;
+app.post("/api/telemetry", async (req, res) => {
+  try {
+    const { stationId, payload } = req.body;
 
-//     if (!stationId || !payload) {
-//       return res.status(400).json({ error: "Missing stationId or payload" });
-//     }
+    if (!stationId || !payload) {
+      return res
+        .status(400)
+        .json({ error: "Missing stationId or payload in request body" });
+    }
 
-//     // 1. Save the real hardware reading to MongoDB
-//     const newReading = await Reading.create({
-//       stationId,
-//       payload,
-//     });
+    const required = ["temp", "humidity", "pressure", "altitude", "airQuality", "rain"];
+    const sanitizedPayload = {};
 
-//     // 2. Broadcast it to your React frontend via Socket.io instantly!
-//     // (Assuming you have access to your 'io' instance here, or use your socket manager)
-//     req.app.get("io").emit("updateDashboard", { stationId, payload });
+    // Safely cast all incoming values (even strings) to numbers
+    for (const field of required) {
+      const val = Number(payload[field]);
+      if (isNaN(val)) {
+        return res.status(400).json({ error: `Missing or invalid payload field: ${field}` });
+      }
+      sanitizedPayload[field] = val;
+    }
 
-//     res.status(201).json({ success: true, message: "Data received" });
-//   } catch (error) {
-//     console.error("Hardware Data Error:", error);
-//     res.status(500).json({ error: "Failed to process hardware data" });
-//   }
-// });
+    // Save using the converted numerical values
+    await Reading.create({ stationId, payload: sanitizedPayload });
+    console.log(`💾 Saved telemetry from ${stationId}`);
+
+    // Emit the sanitized numerical data to the React frontend
+    req.app.get("io").emit("updateDashboard", { stationId, payload: sanitizedPayload });
+    console.log(`📡 Broadcast updateDashboard for ${stationId}`);
+
+    res.status(201).json({ success: true, message: "Telemetry received and saved" });
+  } catch (error) {
+    console.error("Telemetry API Error:", error);
+    res.status(500).json({ error: "Failed to process telemetry data" });
+  }
+});
 
 
 connectDB()
   .then(() => {
     const PORT = process.env.PORT || 8000;
-    initializeSockets(server);
-    server.listen(PORT, () => {
-      console.log(`⚙️  Server is running at port : ${PORT}`);
+
+    const io = initializeSockets(server);
+    app.set("io", io);
+
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log(`⚙️  Server running on port ${PORT}`);
+      console.log(`📡 Hardware endpoint: POST http://0.0.0.0:${PORT}/api/telemetry`);
+      console.log(`📊 History endpoint:  GET  http://0.0.0.0:${PORT}/api/history?stationId=STN-INDORE-04`);
     });
   })
   .catch((err) => {
-    console.log("MONGO db connection failed !!! ", err);
+    console.error("MongoDB connection failed:", err);
+    process.exit(1);
   });

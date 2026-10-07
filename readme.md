@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🌦️ Weather Station IoT
 
 A real-time IoT weather station dashboard built with React and Node.js. Sensor data (temperature, humidity, etc.) is streamed live from an IoT device to a web dashboard using **WebSockets**, stored in **MongoDB**, and visualised with animated **Recharts** graphs.
@@ -52,10 +53,96 @@ weather-station-iot/
 │   └── index.html
 │
 └── .gitignore
+=======
+# 🛰️ SkyNet IoT — Weather Station Dashboard
+
+A full-stack IoT weather monitoring system built with an Arduino UNO R4 WiFi, Node.js backend, and React frontend. Collects real-time environmental data from physical sensors and visualizes it on a live dashboard with historical trend charts.
+
+---
+
+## 📸 Features
+
+- **Live telemetry** — sensor data streams to the dashboard in real time via Socket.io
+- **Historical trends** — scrollable 24h charts for all metrics
+- **Component analytics** — dedicated pages for Thermal Comfort, Atmospheric Dynamics, and Environmental Quality
+- **Weather sticker** — dynamic card showing condition, temperature, and rain status
+- **Dark/Light mode** — full theme toggle
+- **SD card logging** — every reading is written to `log.csv` on the Arduino's SD card
+- **mDNS support** — Arduino connects to the backend by hostname, not IP
+
+---
+
+## 🧰 Hardware
+
+| Component | Purpose |
+|---|---|
+| Arduino UNO R4 WiFi | Main microcontroller + WiFi |
+| DHT22 | Temperature & Humidity |
+| BMP180 | Barometric Pressure & Altitude |
+| MQ-135 | Air Quality (PPM) |
+| Rain Sensor (DO pin) | Digital rain detection |
+| DS3231 RTC | Real-time clock for timestamps |
+| SD Card Module | Local CSV data logging |
+
+### Wiring
+
+| Sensor | Pin |
+|---|---|
+| DHT11 DATA | D3 |
+| Rain Sensor DO | D2 |
+| MQ-135 AO | A3 |
+| SD Card CS | D4 |
+| BMP180 + DS3231 | SDA→D18, SCL→D19 |
+
+---
+
+## 🏗️ Project Structure
+
+```
+skynet-iot/
+├── arduino/
+│   └── src/
+│       └── main.cpp          # Arduino firmware
+├── backend/
+│   └── src/
+│       ├── index.js           # Server entry point, routes, Socket.io
+│       ├── app.js             # Express app setup
+│       ├── db/
+│       │   └── index.js       # MongoDB connection
+│       ├── models/
+│       │   └── reading.models.js
+│       ├── controllers/
+│       │   ├── healthcheck.controllers.js
+│       │   └── reading.controllers.js
+│       ├── routes/
+│       │   ├── healthcheck.routes.js
+│       │   └── reading.routes.js
+│       ├── sockets/
+│       │   └── socket.js
+│       └── utils/
+│           ├── api-response.js
+│           ├── api-error.js
+│           ├── async-handler.js
+│           └── constants.js
+└── frontend/
+    └── src/
+        ├── App.jsx
+        ├── components/
+        │   ├── Topbar.jsx
+        │   ├── LiveSummary.jsx
+        │   ├── History24h.jsx
+        │   ├── AtmosphericDynamics.jsx
+        │   ├── ThermalComfort.jsx
+        │   ├── EnvironmentalQuality.jsx
+        │   ├── WeatherSticker.jsx
+        │   └── SkyNetLogo.jsx
+        └── index.css
+>>>>>>> d2920d7 (not gonna lie the code is pretty bad)
 ```
 
 ---
 
+<<<<<<< HEAD
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -76,11 +163,21 @@ cd weather-station-iot
 
 ### 2. Set up the backend
 
+=======
+## ⚙️ Backend Setup
+
+### Prerequisites
+- Node.js v18+
+- MongoDB Atlas account (free tier works)
+
+### 1. Install dependencies
+>>>>>>> d2920d7 (not gonna lie the code is pretty bad)
 ```bash
 cd backend
 npm install
 ```
 
+<<<<<<< HEAD
 Create a `.env` file in the `backend/` folder:
 
 ```env
@@ -165,3 +262,171 @@ Compatible with **ESP32**, **ESP8266**, **Arduino + WiFi shield**, or any device
 ## 📄 License
 
 This project is open-source and available under the [MIT License](LICENSE).
+=======
+### 2. Create `.env` file
+```env
+PORT=8000
+MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.e5hyeng.mongodb.net/skynet_iot?retryWrites=true&w=majority
+CORS_ORIGIN=*
+```
+
+> ⚠️ Make sure your MongoDB Atlas cluster is **not paused** and your IP is whitelisted (or set to `0.0.0.0/0` for development).
+
+### 3. Run the backend
+```bash
+npm run dev
+```
+
+You should see:
+```
+MongoDB connected !! DB HOST: ac-...mongodb.net
+⚙️  Server running on port 8000
+📡 Hardware endpoint: POST http://0.0.0.0:8000/api/telemetry
+📊 History endpoint:  GET  http://0.0.0.0:8000/api/history?stationId=STN-INDORE-04
+```
+
+---
+
+## 🖥️ Frontend Setup
+
+### Prerequisites
+- Node.js v18+
+
+### 1. Install dependencies
+```bash
+cd frontend
+npm install
+```
+
+### 2. Run the frontend
+```bash
+npm run dev
+```
+
+Frontend runs on `http://localhost:5173` by default.
+
+---
+
+## 🔌 Arduino Setup
+
+### Prerequisites
+- [PlatformIO](https://platformio.org/) (VS Code extension recommended)
+
+### 1. Install libraries
+All dependencies are defined in `platformio.ini` and installed automatically:
+```
+bblanchon/ArduinoJson
+Adafruit BMP085
+Adafruit DHT sensor library
+RTClib
+SD (arduino-libraries)
+```
+
+### 2. Configure WiFi & server
+Edit the top of `main.cpp`:
+```cpp
+const char *ssid          = "YourWiFiName";
+const char *password      = "YourWiFiPassword";
+const char *serverAddress = "MacBook-Air-2.local"; // your Mac's mDNS hostname
+const int   serverPort    = 8000;
+```
+
+> 💡 To find your Mac's mDNS hostname: `scutil --get LocalHostName` → append `.local`
+> This is better than using an IP address since it never changes.
+
+### 3. Flash to board
+```bash
+pio run --target upload
+```
+
+### 4. Monitor serial output
+```bash
+pio device monitor --baud 115200
+```
+
+You should see sensor readings printed every second and `[OK] Transmitted.` after each successful POST to the backend.
+
+---
+
+## 🌐 API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/healthcheck` | Server health check |
+| `POST` | `/api/telemetry` | Receive data from Arduino |
+| `GET` | `/api/history?stationId=STN-INDORE-04` | Fetch historical readings |
+
+### Telemetry payload (Arduino → Backend)
+```json
+{
+  "stationId": "STN-INDORE-04",
+  "payload": {
+    "temp": 27.4,
+    "humidity": 65,
+    "pressure": 1008.3,
+    "altitude": 553.0,
+    "airQuality": 112,
+    "rain": 0
+  }
+}
+```
+
+### Socket.io events
+
+| Event | Direction | Description |
+|---|---|---|
+| `updateDashboard` | Server → Client | Broadcasts new reading to all connected dashboards |
+
+---
+
+## 📊 Dashboard Pages
+
+| Route | Page | Metrics |
+|---|---|---|
+| `/` | Live Summary | All sensors, circular gauges |
+| `/history` | 24h History | Scrollable line charts for all metrics |
+| `/analytics/thermal` | Thermal Comfort | Temp, Humidity, Heat Index |
+| `/analytics/atmospheric` | Atmospheric Dynamics | Pressure, Altitude |
+| `/analytics/environmental` | Environmental Quality | Air Quality (AQI), Rain |
+
+---
+
+## 🗄️ Database
+
+- **MongoDB Atlas** (cloud) — all readings stored in the `skynet_iot` database, `readings` collection
+- **SD Card** (local) — every reading also written to `log.csv` on the Arduino's SD card as a backup
+
+### Reading schema
+```js
+{
+  stationId: String,   // e.g. "STN-INDORE-04"
+  timestamp: Date,
+  payload: {
+    temp:       Number,  // °C
+    humidity:   Number,  // %
+    pressure:   Number,  // hPa
+    altitude:   Number,  // metres
+    airQuality: Number,  // PPM
+    rain:       Number,  // 0 = dry, 1 = raining
+  }
+}
+```
+
+---
+
+## 🐛 Known Issues & Fixes Applied
+
+| Bug | Fix |
+|---|---|
+| Backend crashed before opening port 8000 | Fixed MongoDB URI — added `/skynet_iot?retryWrites=true&w=majority` |
+| `/api/history` route not registered | Added route in `index.js` alongside Socket.io instance |
+| Arduino altitude hardcoded to 553.0m | Now reads live from BMP180 via `bmp.readAltitude()` |
+| `bmp.begin()` called every loop iteration | Moved to `setup()`, stored in `bmpAvailable` flag |
+| Mac IP changing broke Arduino connection | Switched to mDNS hostname (`MacBook-Air-2.local`) |
+
+---
+
+## 👤 Author
+
+**billywithaw1lly** — SkyNet IoT Weather Station, Indore 🇮🇳
+>>>>>>> d2920d7 (not gonna lie the code is pretty bad)

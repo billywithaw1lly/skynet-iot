@@ -10,6 +10,7 @@ const readingSchema = new mongoose.Schema(
     timestamp: {
       type: Date,
       default: Date.now,
+      index: true,
     },
     payload: {
       temp: { type: Number, required: true },
@@ -21,13 +22,8 @@ const readingSchema = new mongoose.Schema(
     },
   },
   {
-    timeseries: {
-      timeField: "timestamp",
-      metaField: "stationId",
-      granularity: "seconds",
-    },
+    timestamps: false,
   },
 );
 
-// 👉 The crucial change is here:
 export default mongoose.model("Reading", readingSchema);

@@ -10,29 +10,32 @@ export const initializeSockets = (server) => {
   });
 
   io.on("connection", (socket) => {
-    console.log(`New client connected: ${socket.id}`);
+    console.log(`✅ Client connected: ${socket.id}`);
 
     socket.on("sensorData", async (data) => {
-      console.log("Live Data Received from Station:", data.stationId);
+      const { stationId, payload } = data;
 
-      // Broadcast this exact data to the React dashboard instantly
-      io.emit("updateDashboard", data);
+      if (!stationId || !payload) {
+        console.warn(
+          "⚠️  Received malformed sensorData — missing stationId or payload",
+        );
+        return;
+      }
+
+      console.log(`📥 sensorData received from ${stationId}`);
+
+      io.emit("updateDashboard", { stationId, payload });
 
       try {
-        const newReading = new Reading({
-          stationId: data.stationId,
-          payload: data.payload, // Contains temp, humidity, altitude, etc.
-        });
-
-        await newReading.save();
-        console.log("Saved reading to MongoDB!");
+        await Reading.create({ stationId, payload });
+        console.log(`💾 Saved reading from ${stationId} to MongoDB`);
       } catch (error) {
-        console.error("Failed to save reading to DB:", error.message);
+        console.error("❌ Failed to save reading to DB:", error.message);
       }
     });
 
-    socket.on("disconnect", () => {
-      console.log(`Client disconnected: ${socket.id}`);
+    socket.on("disconnect", (reason) => {
+      console.log(`❌ Client disconnected: ${socket.id} (${reason})`);
     });
   });
 

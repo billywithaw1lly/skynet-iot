@@ -1,8 +1,7 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
     LineChart,
     Line,
-    ResponsiveContainer,
     XAxis,
     YAxis,
     CartesianGrid,
@@ -16,7 +15,6 @@ import {
     Wind,
     Gauge,
     Mountain,
-    CloudRain,
     ArrowUp,
     ArrowDown,
     Hash,
@@ -33,8 +31,9 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
         );
     }
 
+    // ── Time range display ────────────────────────────────────────────────────
     const getTimeRange = () => {
-        if (!dataHistory || dataHistory.length < 2)
+        if (dataHistory.length < 2)
             return { start: "--:--", end: "--:--", span: "0h 0m" };
 
         const start = dataHistory[0].timestamp;
@@ -44,16 +43,18 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
         const [h2, m2] = end.split(":").map(Number);
 
         let diff = h2 * 60 + m2 - (h1 * 60 + m1);
-        if (diff < 0) diff += 1440;
+        if (diff < 0) diff += 1440; // handle midnight wrap
 
-        const hours = Math.floor(diff / 60);
-        const mins = diff % 60;
-
-        return { start, end, span: `${hours}h ${mins}m` };
+        return {
+            start,
+            end,
+            span: `${Math.floor(diff / 60)}h ${diff % 60}m`,
+        };
     };
 
     const timeInfo = getTimeRange();
 
+    // ── AQI colour helper ─────────────────────────────────────────────────────
     const getAQIColor = (value) => {
         if (value <= 50) return "#00b050";
         if (value <= 100) return "#92d050";
@@ -63,11 +64,15 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
         return "#c00000";
     };
 
+    // ── Stats (max / min / avg) for a given data key ──────────────────────────
+    // dataHistory items are already flattened so item[key] works directly
     const calculateStats = (key) => {
         const values = dataHistory
             .map((item) => item[key])
             .filter((v) => typeof v === "number");
+
         if (values.length === 0) return { max: "--", min: "--", avg: "--" };
+
         const max = Math.max(...values);
         const min = Math.min(...values);
         const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(
@@ -76,10 +81,11 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
         return { max, min, avg };
     };
 
+    // ── Shared tooltip ────────────────────────────────────────────────────────
     const CustomTooltip = ({ active, payload, label, unit }) => {
         if (active && payload && payload.length) {
             return (
-                <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-2xl backdrop-blur-md bg-opacity-90">
+                <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-2xl">
                     <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">
                         Time: {label}
                     </p>
@@ -97,29 +103,35 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
         return null;
     };
 
-    const MetricCard = ({
-        title,
-        unit,
-        icon: Icon,
-        dataKey,
-        color,
-        isAQI,
-        activeStation,
-    }) => {
-        const aqiLineColor = isDark ? "#f8fafc" : "#0f172a";
-        const axisColor = isDark ? "#94a3b8" : "#64748b";
-        const gridColor = isDark ? "#475569" : "#cbd5e1";
-        const stats = calculateStats(dataKey);
-
-        // FIX: Re-added the scrollRef here so the drag handlers can use it
+    // ── Individual metric card with scrollable chart ──────────────────────────
+    const MetricCard = ({ title, unit, icon, dataKey, color, isAQI }) => {
+        const MetricIcon = icon;
         const scrollRef = useRef(null);
-
-        // NEW: State for Drag-to-Scroll functionality
+        const containerRef = useRef(null);
         const [isDragging, setIsDragging] = useState(false);
         const [startX, setStartX] = useState(0);
         const [scrollLeftPos, setScrollLeftPos] = useState(0);
+        const [containerWidth, setContainerWidth] = useState(800);
 
-        // DRAG LOGIC HANDLERS
+        // Measure the card's actual pixel width so the chart can fill it
+        useEffect(() => {
+            if (!containerRef.current) return;
+            const ro = new ResizeObserver((entries) => {
+                for (const entry of entries) {
+                    setContainerWidth(entry.contentRect.width);
+                }
+            });
+            ro.observe(containerRef.current);
+            return () => ro.disconnect();
+        }, []);
+
+        const axisColor = isDark ? "#94a3b8" : "#64748b";
+        const gridColor = isDark ? "#475569" : "#cbd5e1";
+        const aqiLineColor = isDark ? "#f8fafc" : "#0f172a";
+
+        const stats = calculateStats(dataKey);
+
+        // Drag-to-scroll handlers
         const handleMouseDown = (e) => {
             setIsDragging(true);
             if (scrollRef.current) {
@@ -127,23 +139,17 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                 setScrollLeftPos(scrollRef.current.scrollLeft);
             }
         };
-
-        const handleMouseLeave = () => {
-            setIsDragging(false);
-        };
-
-        const handleMouseUp = () => {
-            setIsDragging(false);
-        };
-
+        const handleMouseLeave = () => setIsDragging(false);
+        const handleMouseUp = () => setIsDragging(false);
         const handleMouseMove = (e) => {
             if (!isDragging || !scrollRef.current) return;
-            e.preventDefault(); // Prevents text selection while dragging
+            e.preventDefault();
             const x = e.pageX - scrollRef.current.offsetLeft;
-            const walk = (x - startX) * 1.5; // Scroll speed multiplier
+            const walk = (x - startX) * 1.5;
             scrollRef.current.scrollLeft = scrollLeftPos - walk;
         };
 
+        // Dot renderers
         const standardDot = {
             r: isDark ? 3 : 4,
             fill: isDark ? "#0f172a" : "#ffffff",
@@ -166,31 +172,37 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
             );
         };
 
-        return (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[520px] w-full transition-colors duration-300">
-                {/* CSS Block to completely kill the scrollbar across all browsers */}
-                <style>{`
-                    .no-scrollbar::-webkit-scrollbar { display: none; }
-                    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-                `}</style>
+        // Fill the full card width; only grow wider (and scroll) when data overflows
+        const chartWidth = Math.max(dataHistory.length * 30, containerWidth);
 
+        return (
+            <div
+                ref={containerRef}
+                className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[520px] w-full transition-colors duration-300"
+            >
+                <style>{`
+          .no-scrollbar::-webkit-scrollbar { display: none; }
+          .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        `}</style>
+
+                {/* Card header */}
                 <div className="flex items-center gap-3 mb-6">
                     <div
-                        className="p-2 rounded-lg bg-opacity-10"
+                        className="p-2 rounded-lg"
                         style={{
                             backgroundColor:
                                 isAQI && !isDark ? "#0f172a20" : `${color}20`,
                             color: isAQI && !isDark ? "#0f172a" : color,
                         }}
                     >
-                        <Icon size={24} />
+                        <MetricIcon size={24} />
                     </div>
                     <h3 className="font-semibold text-slate-700 dark:text-slate-200">
                         {title}
                     </h3>
                 </div>
 
-                {/* FIX: Added ref={scrollRef} here so the div is connected to the logic */}
+                {/* Scrollable chart area */}
                 <div
                     ref={scrollRef}
                     onMouseDown={handleMouseDown}
@@ -200,56 +212,51 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                     className={`flex-grow w-full overflow-x-auto overflow-y-hidden no-scrollbar mb-4 touch-pan-x select-none ${
                         isDragging ? "cursor-grabbing" : "cursor-grab"
                     }`}
-                    // Disable smooth scrolling ONLY while dragging so it doesn't stutter
-                    style={{ scrollBehavior: isDragging ? "auto" : "smooth" }}
                 >
-                    <div style={{ width: "2000px", height: "100%" }}>
-                        <ResponsiveContainer
-                            width="100%"
-                            height="100%"
-                            className="pointer-events-none"
+                    {/* Fixed-width inner div — wider than the container to allow scrolling */}
+                    <div
+                        style={{ width: `${chartWidth}px`, height: "320px" }}
+                        className="pointer-events-none"
+                    >
+                        <LineChart
+                            width={chartWidth}
+                            height={320}
+                            data={dataHistory}
+                            margin={{ top: 10, right: 10, left: 0, bottom: 40 }}
                         >
-                            <LineChart
-                                data={dataHistory}
-                                margin={{
-                                    top: 10,
-                                    right: 10,
-                                    left: 0,
-                                    bottom: 40,
+                            <CartesianGrid
+                                strokeDasharray="3 3"
+                                stroke={gridColor}
+                                opacity={0.1}
+                                vertical={false}
+                            />
+                            <XAxis
+                                dataKey="timestamp"
+                                stroke={axisColor}
+                                fontSize={10}
+                                tickMargin={35}
+                                angle={-90}
+                                textAnchor="end"
+                                interval={0}
+                            />
+                            <YAxis
+                                domain={["auto", "auto"]}
+                                stroke={axisColor}
+                                fontSize={10}
+                                width={40}
+                                tickFormatter={(tick) => `${tick}${unit}`}
+                            />
+                            <Tooltip
+                                content={<CustomTooltip unit={unit} />}
+                                cursor={{
+                                    stroke: axisColor,
+                                    strokeWidth: 1,
+                                    strokeDasharray: "4 4",
                                 }}
-                            >
-                                <CartesianGrid
-                                    strokeDasharray="3 3"
-                                    stroke={gridColor}
-                                    opacity={0.1}
-                                    vertical={false}
-                                />
-                                <XAxis
-                                    dataKey="timestamp"
-                                    stroke={axisColor}
-                                    fontSize={10}
-                                    tickMargin={35}
-                                    angle={-90}
-                                    textAnchor="end"
-                                    interval={0}
-                                />
-                                <YAxis
-                                    domain={["auto", "auto"]}
-                                    stroke={axisColor}
-                                    fontSize={10}
-                                    width={40}
-                                    tickFormatter={(tick) => `${tick}${unit}`}
-                                />
+                            />
 
-                                <Tooltip
-                                    content={<CustomTooltip unit={unit} />}
-                                    cursor={{
-                                        stroke: axisColor,
-                                        strokeWidth: 1,
-                                        strokeDasharray: "4 4",
-                                    }}
-                                />
-
+                            {/* Reference lines for max / avg / min */}
+                            {stats.max !== "--" && (
                                 <ReferenceLine
                                     y={stats.max}
                                     stroke="#10b981"
@@ -264,8 +271,10 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                                         opacity={0.6}
                                     />
                                 </ReferenceLine>
+                            )}
+                            {stats.avg !== "--" && (
                                 <ReferenceLine
-                                    y={stats.avg}
+                                    y={Number(stats.avg)}
                                     stroke="#0ea5e9"
                                     strokeDasharray="4 4"
                                     strokeOpacity={0.4}
@@ -278,6 +287,8 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                                         opacity={0.6}
                                     />
                                 </ReferenceLine>
+                            )}
+                            {stats.min !== "--" && (
                                 <ReferenceLine
                                     y={stats.min}
                                     stroke="#f97316"
@@ -292,26 +303,27 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                                         opacity={0.6}
                                     />
                                 </ReferenceLine>
+                            )}
 
-                                <Line
-                                    type="monotone"
-                                    dataKey={dataKey}
-                                    stroke={isAQI ? aqiLineColor : color}
-                                    strokeWidth={2.5}
-                                    dot={isAQI ? aqiDot : standardDot}
-                                    activeDot={{
-                                        r: 6,
-                                        fill: color,
-                                        stroke: isDark ? "#0f172a" : "#ffffff",
-                                        strokeWidth: 2,
-                                    }}
-                                    isAnimationActive={false}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
+                            <Line
+                                type="monotone"
+                                dataKey={dataKey}
+                                stroke={isAQI ? aqiLineColor : color}
+                                strokeWidth={2.5}
+                                dot={isAQI ? aqiDot : standardDot}
+                                activeDot={{
+                                    r: 6,
+                                    fill: color,
+                                    stroke: isDark ? "#0f172a" : "#ffffff",
+                                    strokeWidth: 2,
+                                }}
+                                isAnimationActive={false}
+                            />
+                        </LineChart>
                     </div>
                 </div>
 
+                {/* Stats footer */}
                 <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                     <div className="flex flex-col items-center">
                         <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-500 opacity-80 uppercase tracking-wider">
@@ -319,7 +331,7 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                         </span>
                         <span className="text-sm font-bold dark:text-slate-200">
                             {stats.max}
-                            {unit}
+                            {stats.max !== "--" ? unit : ""}
                         </span>
                     </div>
                     <div className="flex flex-col items-center border-x border-slate-100 dark:border-slate-800">
@@ -328,7 +340,7 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                         </span>
                         <span className="text-sm font-bold dark:text-slate-200">
                             {stats.min}
-                            {unit}
+                            {stats.min !== "--" ? unit : ""}
                         </span>
                     </div>
                     <div className="flex flex-col items-center">
@@ -337,7 +349,7 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                         </span>
                         <span className="text-sm font-bold dark:text-slate-200">
                             {stats.avg}
-                            {unit}
+                            {stats.avg !== "--" ? unit : ""}
                         </span>
                     </div>
                 </div>
@@ -347,6 +359,7 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
 
     return (
         <div className="p-4 md:p-6 w-full max-w-7xl mx-auto">
+            {/* Page header */}
             <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
                     <h1 className="text-3xl font-black dark:text-white tracking-tight leading-none mb-2">
@@ -387,9 +400,9 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                 </div>
             </header>
 
+            {/* Metric cards */}
             <div className="grid grid-cols-1 gap-8">
                 <MetricCard
-                    activeStation={activeStation}
                     title="Temperature Trend"
                     unit="°C"
                     icon={Thermometer}
@@ -397,7 +410,6 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                     color="#f97316"
                 />
                 <MetricCard
-                    activeStation={activeStation}
                     title="Humidity Trend"
                     unit="%"
                     icon={Droplets}
@@ -405,7 +417,6 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                     color="#0ea5e9"
                 />
                 <MetricCard
-                    activeStation={activeStation}
                     title="Pressure Trend"
                     unit=" hPa"
                     icon={Gauge}
@@ -413,7 +424,6 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                     color="#8b5cf6"
                 />
                 <MetricCard
-                    activeStation={activeStation}
                     title="Altitude Stability"
                     unit=" m"
                     icon={Mountain}
@@ -421,21 +431,12 @@ const History24h = ({ dataHistory, isDark, activeStation }) => {
                     color="#ec4899"
                 />
                 <MetricCard
-                    activeStation={activeStation}
                     title="Air Quality Index"
                     unit=" PPM"
                     icon={Wind}
                     dataKey="airQuality"
-                    color="#ffffff"
+                    color="#10b981"
                     isAQI={true}
-                />
-                <MetricCard
-                    activeStation={activeStation}
-                    title="Rainfall Levels"
-                    unit=""
-                    icon={CloudRain}
-                    dataKey="rain"
-                    color="#64748b"
                 />
             </div>
         </div>
