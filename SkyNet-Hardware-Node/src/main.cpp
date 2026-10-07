@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // NETWORK CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
-const char *serverAddress = "your-backend.example.com";
+const char *serverAddress = "skynet-iot.onrender.com";
 const int serverPort = 443;
 const char *stationId = "STN-INDORE-04";
 const char *telemetryPath = "/api/telemetry";
@@ -157,15 +157,17 @@ void connectToWifi()
   WiFi.begin(wifiCredentials.ssid, wifiCredentials.password);
 
   unsigned long connectionStarted = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - connectionStarted < 15000)
+  
+  // Wait for connection AND a valid IP address (not 0.0.0.0)
+  while ((WiFi.status() != WL_CONNECTED || WiFi.localIP() == IPAddress(0,0,0,0)) && millis() - connectionStarted < 15000)
   {
     delay(500);
     Serial.print(".");
   }
 
-  if (WiFi.status() != WL_CONNECTED)
+  if (WiFi.status() != WL_CONNECTED || WiFi.localIP() == IPAddress(0,0,0,0))
   {
-    Serial.println("\nWiFi timed out - starting setup AP");
+    Serial.println("\nWiFi or IP timeout - starting setup AP");
     startSetupPortal();
   }
 
